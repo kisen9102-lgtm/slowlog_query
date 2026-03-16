@@ -1,0 +1,7 @@
+config.ini
+config-test.ini
+polardb_slowlog/
+logs/
+__pycache__/
+*.pyc
+.env

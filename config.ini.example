@@ -1,0 +1,20 @@
+[polardb]
+api_url = https://polardb.aliyuncs.com/
+db_host = YOUR_POLARDB_HOST
+db_port = 3306
+db_user = YOUR_DB_USER
+db_pass = YOUR_DB_PASS
+access_key = YOUR_ACCESS_KEY
+access_secret = YOUR_ACCESS_SECRET
+region = ap-southeast-1
+db_cluster_id = YOUR_CLUSTER_ID
+cluster_name = YOUR_CLUSTER_NAME
+output_dir = /opt/slowlog_query/polardb_slowlog
+lark_webhook = https://open.larksuite.com/open-apis/bot/v2/hook/YOUR_WEBHOOK_TOKEN
+
+[oss]
+access_key = YOUR_ACCESS_KEY
+access_secret = YOUR_ACCESS_SECRET
+bucket_name = YOUR_BUCKET_NAME
+role_arn = acs:ram:*:YOUR_ACCOUNT_ID:role/YOUR_ROLE_NAME
+role_session_name = OssUploaderSession1
