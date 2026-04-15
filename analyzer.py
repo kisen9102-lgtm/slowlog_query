@@ -267,7 +267,7 @@ class PolarDBSlowLogAnalyzer:
 
         top = sorted(items, key=lambda x: x["total_time"], reverse=True)[0]
         return {
-            "client": top["client_ip"],
+            "client": top["client"],
             "count": top["count"],
             "db": top["db"],
             "total_time": round(top["total_time"], 3),
