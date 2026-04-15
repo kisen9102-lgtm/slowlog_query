@@ -7,6 +7,7 @@ PolarDB 慢查询分析器
 - 提供 Top1 摘要供 Lark 推送使用
 """
 
+import html as html_mod
 import json
 import sys
 import os
@@ -20,6 +21,7 @@ class PolarDBSlowLogAnalyzer:
 
     def __init__(self, config_path=None):
         self.stats = {}
+        self._db_conns = {}   # dbname -> pymysql connection（复用，避免每次重新建立）
 
         if config_path is None:
             config_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "config.ini")
@@ -33,6 +35,20 @@ class PolarDBSlowLogAnalyzer:
             "password": cfg.get("polardb", "db_pass"),
             "port": cfg.getint("polardb", "db_port", fallback=3306),
         }
+
+    def _get_db_conn(self, dbname):
+        """获取或复用指定数据库的连接（Fix #9：连接复用）"""
+        conn = self._db_conns.get(dbname)
+        if conn is None:
+            conn = pymysql.connect(db=dbname, cursorclass=pymysql.cursors.DictCursor, **self.db_conf)
+            self._db_conns[dbname] = conn
+        else:
+            try:
+                conn.ping(reconnect=True)
+            except Exception:
+                conn = pymysql.connect(db=dbname, cursorclass=pymysql.cursors.DictCursor, **self.db_conf)
+                self._db_conns[dbname] = conn
+        return conn
 
     def load_json_files(self, paths):
         if isinstance(paths, str):
@@ -100,12 +116,13 @@ class PolarDBSlowLogAnalyzer:
         first_word = sql.strip().split()[0].lower() if sql.strip() else ""
         if first_word not in ("select", "update", "delete"):
             return "EXPLAIN 不支持此语句类型"
+        # 注意：EXPLAIN 语句本身不支持参数化查询，此处依赖只读数据库账号
+        # 以及上方 first_word 检查来减少注入面，生产环境请确保 db_user 为只读账号
         try:
-            conn = pymysql.connect(db=dbname, cursorclass=pymysql.cursors.DictCursor, **self.db_conf)
+            conn = self._get_db_conn(dbname)
             cur = conn.cursor()
             cur.execute("EXPLAIN " + sql)
             rows = cur.fetchall()
-            conn.close()
             result = "\n".join(" | ".join(f"{k}: {v}" for k, v in r.items()) for r in rows)
             return result or "EXPLAIN 无结果"
         except Exception as e:
@@ -145,11 +162,12 @@ class PolarDBSlowLogAnalyzer:
         end   = max(all_lasts)[:19].replace("T", " ")  if all_lasts  else ""
         now   = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
+        title_escaped = html_mod.escape(title)
         html = f"""<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>{title}</title>
+<title>{title_escaped}</title>
 <style>
   body {{ font-family: "Microsoft YaHei", Arial, sans-serif; margin:40px; background:#f7f9fc; }}
   h1 {{ color:#2c3e50; }}
@@ -166,7 +184,7 @@ class PolarDBSlowLogAnalyzer:
 </style>
 </head>
 <body>
-<h1>{title}</h1>
+<h1>{title_escaped}</h1>
 <p>
   <strong>分析时间段：</strong>{start} ～ {end}<br>
   <strong>生成时间：</strong>{now}<br>
@@ -187,7 +205,11 @@ class PolarDBSlowLogAnalyzer:
                 severity = ""
 
             p95_str = f"{r['p95']:.3f}" if r["p95"] is not None else "-"
-            explain_html = self.run_explain(r["db"], r["sample_sql"]).replace("\n", "<br>")
+            # Fix #1（XSS）：所有来自数据库/日志的字段均转义后再嵌入 HTML
+            safe_db      = html_mod.escape(r["db"])
+            safe_sql     = html_mod.escape(r["sample_sql"])
+            explain_raw  = self.run_explain(r["db"], r["sample_sql"])
+            safe_explain = html_mod.escape(explain_raw).replace("\n", "<br>")
 
             html += f"""<tr class="{severity}">
   <td><strong>{r["rank"]}</strong></td>
@@ -197,13 +219,13 @@ class PolarDBSlowLogAnalyzer:
   <td>{p95_str}</td>
   <td>{r["avg_rows"]:,}</td>
   <td>{r["max_rows"]:,}</td>
-  <td>{r["db"]}</td>
+  <td>{safe_db}</td>
   <td>
     <details>
       <summary>查看完整 SQL + 执行计划</summary>
       <div class="sql">
-        <strong>SQL：</strong><br>{r["sample_sql"]}<br><br>
-        <strong>EXPLAIN：</strong><br><pre>{explain_html}</pre>
+        <strong>SQL：</strong><br>{safe_sql}<br><br>
+        <strong>EXPLAIN：</strong><br><pre>{safe_explain}</pre>
       </div>
     </details>
   </td>
@@ -240,7 +262,7 @@ class PolarDBSlowLogAnalyzer:
                 "sample_sql": v["samples"][0] if v["samples"] else "",
                 "first": v["first"],
                 "last": v["last"],
-                "client_ip": v.get("HostAddress", "unknown"),
+                "client": v.get("HostAddress", "unknown"),
             })
 
         top = sorted(items, key=lambda x: x["total_time"], reverse=True)[0]

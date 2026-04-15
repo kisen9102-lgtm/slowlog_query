@@ -72,7 +72,7 @@ class SlowLogAnalyzer:
 
             try:
                 qt = float(rec.get("QueryTimes") or rec.get("Query_time") or 0)
-            except:
+            except (ValueError, TypeError):
                 continue
 
             fp = self.fingerprint_sql(sql) or "<empty>"
@@ -86,7 +86,7 @@ class SlowLogAnalyzer:
                     "samples": [],
                     "user": rec.get("DBUser"),
                     "host": rec.get("HostAddress"),
-                    "first_time": rec.get("ReturnRows") and rec.get("ParseRowNum"),
+                    "first_time": rec.get("ExecutionStartTime"),   # Fix #5：原为错误的 ReturnRows/ParseRowNum
                     "last_time": None
                 }
                 self.aggregator[fp] = ent
@@ -189,6 +189,17 @@ class SlowLogAnalyzer:
         """
         return html
 
+    # ---------- 从 JSON 文件加载日志 ----------
+    def load_json_files(self, paths):
+        """Fix #4：补充 load_json_files 方法，供 __main__ 和外部调用"""
+        if isinstance(paths, str):
+            paths = [paths]
+        for path in paths:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+                records = data.get("records", data) if isinstance(data, dict) else data
+                self.add_logs(records)
+
     # ---------- 清空数据 ----------
     def reset(self):
         self.aggregator = {}
@@ -233,13 +244,13 @@ class SlowLogAnalyzer:
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("用法: python3 aliyun_polardb_slowlog_report.py slowlog_*.json")
+        print("用法: python3 slowlog_analyzer.py slowlog_*.json")
         sys.exit(1)
 
     analyzer = SlowLogAnalyzer()
-    analyzer.load_json_files(sys.argv[1:])
+    analyzer.load_json_files(sys.argv[1:])           # Fix #4：使用正确的 load_json_files 方法
 
-    report_html = analyzer.generate_html("UAT 环境慢查询分析报告 - 2025-12-09")
+    report_html = analyzer.generate_html_report("UAT 环境慢查询分析报告")   # Fix #4：正确方法名
     with open("slow_query_report.html", "w", encoding="utf-8") as f:
         f.write(report_html)
 

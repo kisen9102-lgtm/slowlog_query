@@ -1,0 +1,6 @@
+alibabacloud_sts20150401
+alibabacloud_polardb20170801
+alibabacloud_tea_openapi
+oss2
+pymysql
+requests

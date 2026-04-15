@@ -74,7 +74,9 @@ class OSSUploader:
     def _upload(self, file_path: str, oss_key: str) -> str:
         print(f"[OSS] 上传中: {file_path} -> {oss_key}")
         self.bucket.put_object_from_file(oss_key, file_path, headers=self.kms_headers)
-        url = f"https://{self.bucket_name}.{self.oss_endpoint_public.replace('https://', '')}/{oss_key}"
+        # Fix #8：移除 https:// 前缀后再拼接，避免双斜杠等拼接问题
+        endpoint_host = self.oss_endpoint_public.replace("https://", "").replace("http://", "").rstrip("/")
+        url = f"https://{self.bucket_name}.{endpoint_host}/{oss_key}"
         print(f"[OSS] 上传成功: {url}")
         return url
 

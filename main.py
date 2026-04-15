@@ -87,19 +87,32 @@ def fetch_slow_logs(client, cluster_id, minutes):
     end   = datetime.utcnow()
     start = end - timedelta(minutes=minutes)
 
-    req = polardb_models.DescribeSlowLogRecordsRequest(
-        dbcluster_id=cluster_id,
-        start_time=start.strftime("%Y-%m-%dT%H:%MZ"),
-        end_time=end.strftime("%Y-%m-%dT%H:%MZ"),
-        page_size=100,
-    )
+    start_str = start.strftime("%Y-%m-%dT%H:%MZ")
+    end_str   = end.strftime("%Y-%m-%dT%H:%MZ")
     print(f"拉取慢查询: {start.strftime('%Y-%m-%d %H:%M:%S')} → {end.strftime('%Y-%m-%d %H:%M:%S')} UTC")
 
+    # Fix #6：处理分页，拉取全部记录而非仅第一页（最多 100 条）
     try:
-        resp    = client.describe_slow_log_records(req)
-        records = []
-        if resp.body.items and resp.body.items.sqlslow_record:
-            records = [item.to_map() for item in resp.body.items.sqlslow_record]
+        records    = []
+        page_num   = 1
+        page_size  = 100
+        while True:
+            req = polardb_models.DescribeSlowLogRecordsRequest(
+                dbcluster_id=cluster_id,
+                start_time=start_str,
+                end_time=end_str,
+                page_size=page_size,
+                page_number=page_num,
+            )
+            resp = client.describe_slow_log_records(req)
+            page_records = []
+            if resp.body.items and resp.body.items.sqlslow_record:
+                page_records = [item.to_map() for item in resp.body.items.sqlslow_record]
+            records.extend(page_records)
+            print(f"  第 {page_num} 页：{len(page_records)} 条")
+            if len(page_records) < page_size:
+                break
+            page_num += 1
         return records, start, end
     except Exception as e:
         print(f"[ERROR] 获取 PolarDB 慢日志失败: {e}")
